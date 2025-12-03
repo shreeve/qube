@@ -1,3 +1,5 @@
+alias qube='/Users/shreeve/Data/Code/qube/.build/arm64-apple-macosx/debug/Qube'
+
 Display Modes — Cocoa, SPICE, VNC, or headless
 
 ==
