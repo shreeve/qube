@@ -605,7 +605,8 @@ struct VMDetailView: View {
     }
 
     private func saveSnapshotDisplayName(internalName: String, displayName: String) {
-        var updatedVM = vm
+        // Get current VM from manager (not stale vm property) to preserve existing names
+        var updatedVM = vmManager.virtualMachines.first(where: { $0.id == vm.id }) ?? vm
         updatedVM.snapshotNames[internalName] = displayName
         vmManager.update(updatedVM)
     }
@@ -666,8 +667,8 @@ struct VMDetailView: View {
         }
 
         if success {
-            // Also remove display name mapping
-            var updatedVM = vm
+            // Also remove display name mapping (get current VM to preserve other names)
+            var updatedVM = vmManager.virtualMachines.first(where: { $0.id == vm.id }) ?? vm
             updatedVM.snapshotNames.removeValue(forKey: snapshot.name)
             vmManager.update(updatedVM)
 
