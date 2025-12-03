@@ -32,7 +32,7 @@ class QEMUService {
             args.append(contentsOf: ["-machine", "q35"])
             args.append(contentsOf: ["-cpu", "max"])
             args.append(contentsOf: ["-smp", "\(vm.cpuCores)"])
-            
+
         case .i386:
             // 32-bit x86 - for legacy OSes like Windows XP
             args.append(contentsOf: ["-machine", "pc"])
@@ -59,8 +59,14 @@ class QEMUService {
         args.append(contentsOf: ["-device", "virtio-net-pci,netdev=net0"])
         args.append(contentsOf: ["-netdev", "user,id=net0"])
 
-        // USB for mouse/keyboard
-        args.append(contentsOf: ["-usb"])
+        // USB controller and devices
+        if vm.architecture == .aarch64 {
+            // ARM virt machine needs explicit USB controller
+            args.append(contentsOf: ["-device", "qemu-xhci"])
+        } else {
+            // x86 machines have built-in USB
+            args.append(contentsOf: ["-usb"])
+        }
         args.append(contentsOf: ["-device", "usb-tablet"])
         args.append(contentsOf: ["-device", "usb-kbd"])
 
