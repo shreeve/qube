@@ -33,8 +33,16 @@ struct VMFormView: View {
         NavigationStack {
             Form {
                 Section("General") {
-                    TextField("Name", text: $name)
-                        .textFieldStyle(.roundedBorder)
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("Name", text: $name)
+                            .textFieldStyle(.roundedBorder)
+
+                        if let error = validationError, !name.isEmpty {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
 
                     Picker("Guest OS", selection: $guestOS) {
                         ForEach(VirtualMachine.GuestOS.allCases, id: \.self) { os in
@@ -92,11 +100,34 @@ struct VMFormView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") { save() }
-                        .disabled(name.isEmpty || diskImagePath.isEmpty)
+                        .disabled(!canSave)
                 }
             }
         }
         .frame(minWidth: 450, minHeight: 480)
+    }
+
+    private var canSave: Bool {
+        validationError == nil
+    }
+
+    private var validationError: String? {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+
+        // Name is required
+        if trimmedName.isEmpty {
+            return "Name is required"
+        }
+
+        // Name must be unique (except for the VM being edited)
+        let isDuplicate = vmManager.virtualMachines.contains { vm in
+            vm.name.lowercased() == trimmedName.lowercased() && vm.id != existingVM?.id
+        }
+        if isDuplicate {
+            return "A VM with this name already exists"
+        }
+
+        return nil
     }
 
     private func save() {

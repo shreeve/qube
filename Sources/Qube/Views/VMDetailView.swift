@@ -48,6 +48,7 @@ struct VMDetailView: View {
 
                     Button("Save") { save() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(!canSave)
                 }
 
                 Button(action: toggleRun) {
@@ -120,6 +121,13 @@ struct VMDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .font(.subheadline)
+
+                // Validation message
+                if let validationError = validationError {
+                    Text(validationError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
             }
 
             Spacer()
@@ -301,6 +309,29 @@ struct VMDetailView: View {
             diskImagePath != vm.diskImagePath ||
             isoPath != (vm.isoPath ?? "") ||
             displayMode != vm.displayMode
+    }
+
+    private var canSave: Bool {
+        validationError == nil
+    }
+
+    private var validationError: String? {
+        let trimmedName = name.trimmingCharacters(in: .whitespaces)
+
+        // Name is required
+        if trimmedName.isEmpty {
+            return "Name is required"
+        }
+
+        // Name must be unique (except for this VM)
+        let isDuplicate = vmManager.virtualMachines.contains { otherVM in
+            otherVM.name.lowercased() == trimmedName.lowercased() && otherVM.id != vm.id
+        }
+        if isDuplicate {
+            return "A VM with this name already exists"
+        }
+
+        return nil
     }
 
     private func save() {
