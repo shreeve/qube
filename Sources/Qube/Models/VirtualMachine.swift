@@ -54,6 +54,15 @@ struct VirtualMachine: Identifiable, Codable, Hashable {
         case spice = "spice-app"
         case vnc = "vnc"
         case none = "none"
+
+        var displayName: String {
+            switch self {
+            case .cocoa: return "macOS"
+            case .spice: return "Spice"
+            case .vnc: return "VNC"
+            case .none: return "None"
+            }
+        }
     }
 
     // Keys to exclude from YAML encoding

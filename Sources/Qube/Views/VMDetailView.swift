@@ -189,7 +189,7 @@ struct VMDetailView: View {
             ConfigRow(label: "Display") {
                 Picker("", selection: $displayMode) {
                     ForEach(VirtualMachine.DisplayMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                        Text(mode.displayName).tag(mode)
                     }
                 }
                 .labelsHidden()

@@ -71,7 +71,7 @@ struct VMFormView: View {
                     }
                     Picker("Display", selection: $displayMode) {
                         ForEach(VirtualMachine.DisplayMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
+                            Text(mode.displayName).tag(mode)
                         }
                     }
                 }
