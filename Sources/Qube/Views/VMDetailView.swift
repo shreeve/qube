@@ -20,6 +20,14 @@ struct VMDetailView: View {
     @State private var showingDeleteAlert = false
     @State private var showingDiskPicker = false
 
+    // Snapshots
+    @State private var snapshots: [Snapshot] = []
+    @State private var showingCreateSnapshot = false
+    @State private var newSnapshotName = ""
+    @State private var snapshotToDelete: Snapshot?
+    @State private var snapshotToStart: Snapshot?
+    @State private var snapshotToClone: Snapshot?
+
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -34,6 +42,7 @@ struct VMDetailView: View {
                     systemSection
                     hardwareSection
                     storageSection
+                    snapshotsSection
                     configInfoSection
                 }
                 .padding(24)
@@ -255,6 +264,249 @@ struct VMDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Snapshots Section
+
+    private var snapshotsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header with title and create button
+            HStack {
+                Label("Snapshots", systemImage: "clock.arrow.circlepath")
+                    .font(.headline)
+
+                Spacer()
+
+                if !diskImagePath.isEmpty {
+                    Button("Create…") {
+                        newSnapshotName = "Snapshot \(snapshots.count + 1)"
+                        showingCreateSnapshot = true
+                    }
+                    .disabled(vmManager.isRunning(vm))
+                }
+            }
+
+            // Content
+            VStack(spacing: 0) {
+                if diskImagePath.isEmpty {
+                    Text("Select a disk image first")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else if snapshots.isEmpty {
+                    Text("No snapshots")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding()
+                } else {
+                    // Table header
+                    HStack(spacing: 0) {
+                        Text("#")
+                            .frame(width: 30, alignment: .center)
+                        Text("Name")
+                            .frame(minWidth: 100, alignment: .leading)
+                        Spacer()
+                        Text("Created")
+                            .frame(width: 130, alignment: .leading)
+                        Text("Size")
+                            .frame(width: 50, alignment: .trailing)
+                        Text("Actions")
+                            .frame(width: 90, alignment: .center)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(nsColor: .separatorColor).opacity(0.2))
+
+                    // Snapshot rows
+                    ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
+                        VStack(spacing: 0) {
+                            if index > 0 {
+                                Divider()
+                            }
+
+                            HStack(spacing: 0) {
+                                Text("\(index + 1)")
+                                    .frame(width: 30, alignment: .center)
+                                    .foregroundStyle(.tertiary)
+                                    .font(.caption.monospacedDigit())
+
+                                Text(snapshot.name)
+                                    .frame(minWidth: 100, alignment: .leading)
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                if let date = snapshot.date {
+                                    Text(date, format: .dateTime.month(.abbreviated).day().hour().minute())
+                                        .frame(width: 130, alignment: .leading)
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption)
+                                } else {
+                                    Text("—")
+                                        .frame(width: 130, alignment: .leading)
+                                        .foregroundStyle(.tertiary)
+                                }
+
+                                Text(snapshot.vmSize ?? "—")
+                                    .frame(width: 50, alignment: .trailing)
+                                    .foregroundStyle(.tertiary)
+                                    .font(.caption)
+
+                                HStack(spacing: 4) {
+                                    Button {
+                                        snapshotToStart = snapshot
+                                    } label: {
+                                        Image(systemName: "play.fill")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(vmManager.isRunning(vm))
+                                    .help("Start from this snapshot")
+
+                                    Button {
+                                        snapshotToClone = snapshot
+                                    } label: {
+                                        Image(systemName: "doc.on.doc")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .disabled(vmManager.isRunning(vm))
+                                    .help("Clone this snapshot")
+
+                                    Button {
+                                        snapshotToDelete = snapshot
+                                    } label: {
+                                        Image(systemName: "trash")
+                                            .font(.caption)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.red)
+                                    .help("Delete this snapshot")
+                                }
+                                .frame(width: 90, alignment: .center)
+                            }
+                            .font(.callout)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                        }
+                    }
+                }
+            }
+            .background(Color(nsColor: .controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .onAppear { loadSnapshots() }
+        .onChange(of: diskImagePath) { _, _ in loadSnapshots() }
+        .alert("Create Snapshot", isPresented: $showingCreateSnapshot) {
+            TextField("Name", text: $newSnapshotName)
+            Button("Cancel", role: .cancel) { }
+            Button("Create") { createSnapshot() }
+        } message: {
+            Text("The VM must be stopped to create a snapshot.")
+        }
+        .alert("Start from Snapshot?", isPresented: .init(
+            get: { snapshotToStart != nil },
+            set: { if !$0 { snapshotToStart = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { snapshotToStart = nil }
+            Button("Start") {
+                if let snapshot = snapshotToStart {
+                    startFromSnapshot(snapshot)
+                }
+            }
+        } message: {
+            if let snapshot = snapshotToStart {
+                Text("Restore \"\(snapshot.name)\" and start the VM?")
+            }
+        }
+        .alert("Clone Snapshot?", isPresented: .init(
+            get: { snapshotToClone != nil },
+            set: { if !$0 { snapshotToClone = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { snapshotToClone = nil }
+            Button("Clone") {
+                if let snapshot = snapshotToClone {
+                    cloneSnapshot(snapshot)
+                }
+            }
+        } message: {
+            if let snapshot = snapshotToClone {
+                Text("Create a copy of \"\(snapshot.name)\"?")
+            }
+        }
+        .alert("Delete Snapshot?", isPresented: .init(
+            get: { snapshotToDelete != nil },
+            set: { if !$0 { snapshotToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { snapshotToDelete = nil }
+            Button("Delete", role: .destructive) {
+                if let snapshot = snapshotToDelete {
+                    deleteSnapshot(snapshot)
+                }
+            }
+        } message: {
+            if let snapshot = snapshotToDelete {
+                Text("Delete \"\(snapshot.name)\"? This cannot be undone.")
+            }
+        }
+    }
+
+    private func loadSnapshots() {
+        guard !diskImagePath.isEmpty else {
+            snapshots = []
+            return
+        }
+        snapshots = SnapshotService.shared.list(diskPath: diskImagePath)
+    }
+
+    private func createSnapshot() {
+        guard !diskImagePath.isEmpty, !newSnapshotName.isEmpty else { return }
+        if SnapshotService.shared.create(diskPath: diskImagePath, name: newSnapshotName) {
+            loadSnapshots()
+        }
+        newSnapshotName = ""
+    }
+
+    private func startFromSnapshot(_ snapshot: Snapshot) {
+        guard !diskImagePath.isEmpty else { return }
+        // First restore the snapshot
+        if SnapshotService.shared.restore(diskPath: diskImagePath, name: snapshot.name) {
+            loadSnapshots()
+            // Then start the VM
+            do {
+                let process = try QEMUService.shared.start(vm)
+                vmManager.runningVMs.insert(vm.id)
+                process.terminationHandler = { _ in
+                    Task { @MainActor in
+                        vmManager.runningVMs.remove(vm.id)
+                    }
+                }
+            } catch {
+                print("Failed to start VM: \(error)")
+            }
+        }
+        snapshotToStart = nil
+    }
+
+    private func cloneSnapshot(_ snapshot: Snapshot) {
+        guard !diskImagePath.isEmpty else { return }
+        // Restore the snapshot first, then create a new one
+        if SnapshotService.shared.restore(diskPath: diskImagePath, name: snapshot.name) {
+            let newName = "\(snapshot.name) copy"
+            _ = SnapshotService.shared.create(diskPath: diskImagePath, name: newName)
+            loadSnapshots()
+        }
+        snapshotToClone = nil
+    }
+
+    private func deleteSnapshot(_ snapshot: Snapshot) {
+        guard !diskImagePath.isEmpty else { return }
+        if SnapshotService.shared.delete(diskPath: diskImagePath, name: snapshot.name) {
+            loadSnapshots()
+        }
+        snapshotToDelete = nil
     }
 
     // MARK: - Config Info Section

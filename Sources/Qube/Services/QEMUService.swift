@@ -4,6 +4,13 @@ class QEMUService {
     static let shared = QEMUService()
 
     private var processes: [UUID: Process] = [:]
+    private var monitorSockets: [UUID: String] = [:]
+
+    /// Get the monitor socket path for a VM
+    func monitorSocketPath(for vm: VirtualMachine) -> String {
+        let tempDir = FileManager.default.temporaryDirectory
+        return tempDir.appendingPathComponent("qube-\(vm.id.uuidString).sock").path
+    }
 
     func buildCommand(for vm: VirtualMachine) -> [String] {
         var args: [String] = []
@@ -77,11 +84,19 @@ class QEMUService {
         // Boot order: CD first (for installation), then disk
         args.append(contentsOf: ["-boot", "order=dc"])
 
+        // Monitor socket for control (pause, snapshots, etc.)
+        let socketPath = monitorSocketPath(for: vm)
+        args.append(contentsOf: ["-monitor", "unix:\(socketPath),server,nowait"])
+
         return args
     }
 
     func start(_ vm: VirtualMachine) throws -> Process {
         let process = Process()
+
+        // Clean up old socket if exists
+        let socketPath = monitorSocketPath(for: vm)
+        try? FileManager.default.removeItem(atPath: socketPath)
 
         // Find QEMU binary
         let qemuPath = "/opt/homebrew/bin/\(vm.architecture.qemuBinary)"
@@ -90,16 +105,82 @@ class QEMUService {
 
         try process.run()
         processes[vm.id] = process
+        monitorSockets[vm.id] = socketPath
 
         return process
     }
 
     func stop(_ vm: VirtualMachine) {
-        processes[vm.id]?.terminate()
-        processes.removeValue(forKey: vm.id)
+        // Try graceful shutdown via monitor first
+        sendMonitorCommand(vm: vm, command: "quit")
+
+        // Give it a moment, then force terminate if needed
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            if self?.processes[vm.id]?.isRunning == true {
+                self?.processes[vm.id]?.terminate()
+            }
+            self?.processes.removeValue(forKey: vm.id)
+            self?.monitorSockets.removeValue(forKey: vm.id)
+
+            // Clean up socket
+            let socketPath = self?.monitorSocketPath(for: vm) ?? ""
+            try? FileManager.default.removeItem(atPath: socketPath)
+        }
     }
 
     func isRunning(_ vm: VirtualMachine) -> Bool {
         processes[vm.id]?.isRunning ?? false
+    }
+
+    // MARK: - Monitor Commands
+
+    /// Send a command to the QEMU monitor
+    @discardableResult
+    func sendMonitorCommand(vm: VirtualMachine, command: String) -> String? {
+        guard let socketPath = monitorSockets[vm.id] else { return nil }
+
+        // Use socat or nc to send command to socket
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-c", "echo '\(command)' | nc -U '\(socketPath)'"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Pause a running VM
+    func pause(_ vm: VirtualMachine) -> Bool {
+        sendMonitorCommand(vm: vm, command: "stop") != nil
+    }
+
+    /// Resume a paused VM
+    func resume(_ vm: VirtualMachine) -> Bool {
+        sendMonitorCommand(vm: vm, command: "cont") != nil
+    }
+
+    /// Take a live snapshot (includes RAM state!)
+    func saveSnapshot(_ vm: VirtualMachine, name: String) -> Bool {
+        sendMonitorCommand(vm: vm, command: "savevm \(name)") != nil
+    }
+
+    /// Load a snapshot (restores RAM state too)
+    func loadSnapshot(_ vm: VirtualMachine, name: String) -> Bool {
+        sendMonitorCommand(vm: vm, command: "loadvm \(name)") != nil
+    }
+
+    /// Get VM status
+    func getStatus(_ vm: VirtualMachine) -> String? {
+        sendMonitorCommand(vm: vm, command: "info status")
     }
 }

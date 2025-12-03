@@ -21,6 +21,7 @@ class VMManager: ObservableObject {
         try? FileManager.default.createDirectory(at: machinesDirectory, withIntermediateDirectories: true)
 
         load()
+        detectRunningVMs()
     }
 
     func load() {
@@ -116,5 +117,47 @@ class VMManager: ObservableObject {
 
     func configDirectoryPath() -> String {
         machinesDirectory.path
+    }
+    
+    /// Detect QEMU processes that are running our VMs
+    func detectRunningVMs() {
+        // Get list of running QEMU processes
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-eo", "pid,command"]
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else { return }
+            
+            // Parse output and find QEMU processes
+            for line in output.components(separatedBy: "\n") {
+                if line.contains("qemu-system-") {
+                    // Check each VM to see if its disk is in this command
+                    for vm in virtualMachines {
+                        let expandedPath = NSString(string: vm.diskImagePath).expandingTildeInPath
+                        if line.contains(expandedPath) {
+                            runningVMs.insert(vm.id)
+                            print("Detected running VM: \(vm.name)")
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Failed to detect running VMs: \(error)")
+        }
+    }
+    
+    /// Refresh running VM status
+    func refreshRunningStatus() {
+        runningVMs.removeAll()
+        detectRunningVMs()
     }
 }
