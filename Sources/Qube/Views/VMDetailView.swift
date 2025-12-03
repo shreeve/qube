@@ -27,6 +27,8 @@ struct VMDetailView: View {
     @State private var snapshotToDelete: Snapshot?
     @State private var snapshotToStart: Snapshot?
     @State private var snapshotToClone: Snapshot?
+    @State private var snapshotToRename: Snapshot?
+    @State private var renameSnapshotName = ""
 
     var body: some View {
         ScrollView {
@@ -336,10 +338,11 @@ struct VMDetailView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
 
                 if !diskImagePath.isEmpty && !snapshots.isEmpty {
                     Divider()
+                        .padding(.top, 4)
                     // Table header
                     HStack(spacing: 0) {
                         Text("#")
@@ -373,9 +376,16 @@ struct VMDetailView: View {
                                     .foregroundStyle(.tertiary)
                                     .font(.caption.monospacedDigit())
 
-                                Text(snapshot.name)
-                                    .frame(minWidth: 80, alignment: .leading)
-                                    .lineLimit(1)
+                                Button(action: {
+                                    snapshotToRename = snapshot
+                                    renameSnapshotName = displayName(for: snapshot)
+                                }) {
+                                    Text(displayName(for: snapshot))
+                                        .frame(minWidth: 80, alignment: .leading)
+                                        .lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Click to rename")
 
                                 Spacer()
 
@@ -461,7 +471,7 @@ struct VMDetailView: View {
             }
         } message: {
             if let snapshot = snapshotToStart {
-                Text("Restore \"\(snapshot.name)\" and start the VM?")
+                Text("Restore \"\(displayName(for: snapshot))\" and start the VM?")
             }
         }
         .alert("Clone Snapshot?", isPresented: .init(
@@ -476,7 +486,7 @@ struct VMDetailView: View {
             }
         } message: {
             if let snapshot = snapshotToClone {
-                Text("Create a copy of \"\(snapshot.name)\"?")
+                Text("Create a copy of \"\(displayName(for: snapshot))\"?")
             }
         }
         .alert("Delete Snapshot?", isPresented: .init(
@@ -491,8 +501,22 @@ struct VMDetailView: View {
             }
         } message: {
             if let snapshot = snapshotToDelete {
-                Text("Delete \"\(snapshot.name)\"? This cannot be undone.")
+                Text("Delete \"\(displayName(for: snapshot))\"? This cannot be undone.")
             }
+        }
+        .alert("Rename Snapshot", isPresented: .init(
+            get: { snapshotToRename != nil },
+            set: { if !$0 { snapshotToRename = nil } }
+        )) {
+            TextField("Name", text: $renameSnapshotName)
+            Button("Cancel", role: .cancel) { snapshotToRename = nil }
+            Button("Rename") {
+                if let snapshot = snapshotToRename {
+                    renameSnapshot(snapshot, to: renameSnapshotName)
+                }
+            }
+        } message: {
+            Text("Enter a new display name for this snapshot.")
         }
     }
 
@@ -518,18 +542,32 @@ struct VMDetailView: View {
     private func createSnapshot() {
         guard !diskImagePath.isEmpty, !newSnapshotName.isEmpty else { return }
 
-        if vmManager.isRunning(vm) {
+        // Generate timestamp-based internal name for QEMU
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let internalName = "snap_\(formatter.string(from: Date()))"
+        let userDisplayName = newSnapshotName
+
+        // Check if VM is running (either tracked by manager OR socket exists)
+        let socketPath = QEMUService.shared.monitorSocketPath(for: vm)
+        let socketExists = FileManager.default.fileExists(atPath: socketPath)
+        let isRunning = vmManager.isRunning(vm) || socketExists
+
+        if isRunning {
             // Live snapshot - captures RAM + disk state!
             // Pause briefly for consistency
             _ = QEMUService.shared.pause(vm)
 
             // Save the snapshot (includes memory state)
-            let success = QEMUService.shared.saveSnapshot(vm, name: newSnapshotName)
+            let success = QEMUService.shared.saveSnapshot(vm, name: internalName)
 
             // Resume immediately
             _ = QEMUService.shared.resume(vm)
 
             if success {
+                // Store display name mapping
+                saveSnapshotDisplayName(internalName: internalName, displayName: userDisplayName)
+
                 // Give QEMU a moment to write the snapshot, then refresh
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     loadSnapshots()
@@ -537,11 +575,30 @@ struct VMDetailView: View {
             }
         } else {
             // Offline snapshot - disk state only
-            if SnapshotService.shared.create(diskPath: diskImagePath, name: newSnapshotName) {
+            if SnapshotService.shared.create(diskPath: diskImagePath, name: internalName) {
+                // Store display name mapping
+                saveSnapshotDisplayName(internalName: internalName, displayName: userDisplayName)
                 loadSnapshots()
             }
         }
         newSnapshotName = ""
+    }
+
+    private func displayName(for snapshot: Snapshot) -> String {
+        // Look up display name in VM config, fallback to internal name
+        return vm.snapshotNames[snapshot.name] ?? snapshot.name
+    }
+
+    private func saveSnapshotDisplayName(internalName: String, displayName: String) {
+        var updatedVM = vm
+        updatedVM.snapshotNames[internalName] = displayName
+        vmManager.update(updatedVM)
+    }
+
+    private func renameSnapshot(_ snapshot: Snapshot, to newName: String) {
+        guard !newName.isEmpty else { return }
+        saveSnapshotDisplayName(internalName: snapshot.name, displayName: newName)
+        snapshotToRename = nil
     }
 
     private func startFromSnapshot(_ snapshot: Snapshot) {
@@ -579,8 +636,13 @@ struct VMDetailView: View {
     private func deleteSnapshot(_ snapshot: Snapshot) {
         guard !diskImagePath.isEmpty else { return }
 
+        // Check if VM is running (either tracked by manager OR socket exists)
+        let socketPath = QEMUService.shared.monitorSocketPath(for: vm)
+        let socketExists = FileManager.default.fileExists(atPath: socketPath)
+        let isRunning = vmManager.isRunning(vm) || socketExists
+
         var success = false
-        if vmManager.isRunning(vm) {
+        if isRunning {
             // Live delete via QEMU monitor
             success = QEMUService.shared.deleteSnapshot(vm, name: snapshot.name)
         } else {
@@ -589,6 +651,11 @@ struct VMDetailView: View {
         }
 
         if success {
+            // Also remove display name mapping
+            var updatedVM = vm
+            updatedVM.snapshotNames.removeValue(forKey: snapshot.name)
+            vmManager.update(updatedVM)
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 loadSnapshots()
             }
