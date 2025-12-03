@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Yams
 
 @MainActor
 class VMManager: ObservableObject {
@@ -9,48 +10,111 @@ class VMManager: ObservableObject {
     @Published var selectedVM: VirtualMachine?
 
     private var processes: [UUID: Process] = [:]
-    private let configURL: URL
+    let machinesDirectory: URL
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let qubeDir = appSupport.appendingPathComponent("Qube", isDirectory: true)
-        try? FileManager.default.createDirectory(at: qubeDir, withIntermediateDirectories: true)
-        self.configURL = qubeDir.appendingPathComponent("vms.json")
+        self.machinesDirectory = qubeDir.appendingPathComponent("Machines", isDirectory: true)
+
+        // Create directories
+        try? FileManager.default.createDirectory(at: machinesDirectory, withIntermediateDirectories: true)
+
         load()
     }
 
     func load() {
-        guard let data = try? Data(contentsOf: configURL),
-              let vms = try? JSONDecoder().decode([VirtualMachine].self, from: data) else {
-            return
+        virtualMachines = []
+
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: machinesDirectory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for fileURL in files where fileURL.pathExtension == "yaml" {
+            if var vm = loadVM(from: fileURL) {
+                // Attach file metadata
+                vm.configPath = fileURL
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
+                   let modDate = attrs[.modificationDate] as? Date {
+                    vm.lastModified = modDate
+                }
+                virtualMachines.append(vm)
+            }
         }
-        virtualMachines = vms
+
+        // Sort by last modified, newest first
+        virtualMachines.sort { ($0.lastModified ?? .distantPast) > ($1.lastModified ?? .distantPast) }
     }
 
-    func save() {
-        guard let data = try? JSONEncoder().encode(virtualMachines) else { return }
-        try? data.write(to: configURL)
+    private func loadVM(from url: URL) -> VirtualMachine? {
+        guard let yamlString = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+
+        let decoder = YAMLDecoder()
+        return try? decoder.decode(VirtualMachine.self, from: yamlString)
+    }
+
+    func save(_ vm: VirtualMachine) {
+        let encoder = YAMLEncoder()
+        guard let yamlString = try? encoder.encode(vm) else { return }
+
+        let fileName = sanitizeFileName(vm.name) + ".yaml"
+        let fileURL = vm.configPath ?? machinesDirectory.appendingPathComponent(fileName)
+
+        try? yamlString.write(to: fileURL, atomically: true, encoding: .utf8)
     }
 
     func add(_ vm: VirtualMachine) {
-        virtualMachines.append(vm)
-        save()
+        var newVM = vm
+        let fileName = sanitizeFileName(vm.name) + ".yaml"
+        newVM.configPath = machinesDirectory.appendingPathComponent(fileName)
+        newVM.lastModified = Date()
+
+        save(newVM)
+        virtualMachines.insert(newVM, at: 0)
     }
 
     func delete(_ vm: VirtualMachine) {
+        // Delete the YAML file
+        if let configPath = vm.configPath {
+            try? FileManager.default.removeItem(at: configPath)
+        }
         virtualMachines.removeAll { $0.id == vm.id }
-        save()
     }
 
     func update(_ vm: VirtualMachine) {
-        if let index = virtualMachines.firstIndex(where: { $0.id == vm.id }) {
-            virtualMachines[index] = vm
-            save()
+        guard let index = virtualMachines.firstIndex(where: { $0.id == vm.id }) else { return }
+
+        let oldVM = virtualMachines[index]
+        var updatedVM = vm
+        updatedVM.lastModified = Date()
+
+        // If name changed, we need to rename the file
+        if oldVM.name != vm.name, let oldPath = oldVM.configPath {
+            let newFileName = sanitizeFileName(vm.name) + ".yaml"
+            let newPath = machinesDirectory.appendingPathComponent(newFileName)
+
+            // Delete old file
+            try? FileManager.default.removeItem(at: oldPath)
+            updatedVM.configPath = newPath
         }
+
+        save(updatedVM)
+        virtualMachines[index] = updatedVM
     }
 
     func isRunning(_ vm: VirtualMachine) -> Bool {
         runningVMs.contains(vm.id)
     }
-}
 
+    private func sanitizeFileName(_ name: String) -> String {
+        // Remove characters that aren't safe for filenames
+        let invalidChars = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        return name.components(separatedBy: invalidChars).joined(separator: "_")
+    }
+
+    func configDirectoryPath() -> String {
+        machinesDirectory.path
+    }
+}

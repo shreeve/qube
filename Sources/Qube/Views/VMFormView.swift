@@ -9,6 +9,7 @@ struct VMFormView: View {
     let existingVM: VirtualMachine?
 
     @State private var name: String
+    @State private var guestOS: VirtualMachine.GuestOS
     @State private var architecture: VirtualMachine.Architecture
     @State private var memoryMB: Int
     @State private var cpuCores: Int
@@ -19,7 +20,8 @@ struct VMFormView: View {
     init(vm: VirtualMachine?) {
         self.existingVM = vm
         _name = State(initialValue: vm?.name ?? "")
-        _architecture = State(initialValue: vm?.architecture ?? .x86_64)
+        _guestOS = State(initialValue: vm?.guestOS ?? .linux)
+        _architecture = State(initialValue: vm?.architecture ?? .aarch64)
         _memoryMB = State(initialValue: vm?.memoryMB ?? 4096)
         _cpuCores = State(initialValue: vm?.cpuCores ?? 4)
         _diskImagePath = State(initialValue: vm?.diskImagePath ?? "")
@@ -33,6 +35,13 @@ struct VMFormView: View {
                 Section("General") {
                     TextField("Name", text: $name)
                         .textFieldStyle(.roundedBorder)
+
+                    Picker("Guest OS", selection: $guestOS) {
+                        ForEach(VirtualMachine.GuestOS.allCases, id: \.self) { os in
+                            Label(os.displayName, systemImage: os.iconName).tag(os)
+                        }
+                    }
+
                     Picker("Architecture", selection: $architecture) {
                         ForEach(VirtualMachine.Architecture.allCases, id: \.self) { arch in
                             Text(arch.rawValue).tag(arch)
@@ -87,12 +96,13 @@ struct VMFormView: View {
                 }
             }
         }
-        .frame(minWidth: 450, minHeight: 420)
+        .frame(minWidth: 450, minHeight: 480)
     }
 
     private func save() {
         var vm = existingVM ?? VirtualMachine(
             name: name,
+            guestOS: guestOS,
             architecture: architecture,
             memoryMB: memoryMB,
             cpuCores: cpuCores,
@@ -103,6 +113,7 @@ struct VMFormView: View {
 
         if existingVM != nil {
             vm.name = name
+            vm.guestOS = guestOS
             vm.architecture = architecture
             vm.memoryMB = memoryMB
             vm.cpuCores = cpuCores

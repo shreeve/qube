@@ -1,0 +1,26 @@
+#!/bin/bash
+# Qube launcher - launches the app and returns immediately
+# The app handles single-instance behavior internally
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+QUBE_BIN="$SCRIPT_DIR/.build/arm64-apple-macosx/debug/Qube"
+
+if [[ ! -x "$QUBE_BIN" ]]; then
+    echo "Qube not found. Building..."
+    cd "$SCRIPT_DIR" && swift build
+fi
+
+# Launch and detach completely from terminal
+"$QUBE_BIN" &
+disown
+
+# Wait for app to start then bring to front
+sleep 0.3
+osascript -e 'tell application "System Events"
+    set qubeProcs to every process whose name is "Qube"
+    if (count of qubeProcs) > 0 then
+        set frontmost of item 1 of qubeProcs to true
+    end if
+end tell' 2>/dev/null
+
+exit 0
