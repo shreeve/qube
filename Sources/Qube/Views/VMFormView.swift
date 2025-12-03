@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 struct VMFormView: View {
     @EnvironmentObject var vmManager: VMManager
@@ -57,8 +59,19 @@ struct VMFormView: View {
                 }
 
                 Section("Storage") {
-                    TextField("Disk Image Path", text: $diskImagePath)
-                    TextField("ISO Path (optional)", text: $isoPath)
+                    FilePickerRow(
+                        label: "Disk Image",
+                        path: $diskImagePath,
+                        allowedTypes: ["qcow2", "raw", "vmdk", "vdi", "img"],
+                        prompt: "Select Disk Image"
+                    )
+
+                    FilePickerRow(
+                        label: "ISO (optional)",
+                        path: $isoPath,
+                        allowedTypes: ["iso", "img"],
+                        prompt: "Select ISO Image"
+                    )
                 }
             }
             .formStyle(.grouped)
@@ -73,7 +86,7 @@ struct VMFormView: View {
                 }
             }
         }
-        .frame(minWidth: 400, minHeight: 400)
+        .frame(minWidth: 450, minHeight: 420)
     }
 
     private func save() {
@@ -101,5 +114,73 @@ struct VMFormView: View {
         }
 
         dismiss()
+    }
+}
+
+// MARK: - File Picker Row
+
+struct FilePickerRow: View {
+    let label: String
+    @Binding var path: String
+    let allowedTypes: [String]
+    let prompt: String
+
+    var body: some View {
+        LabeledContent(label) {
+            HStack(spacing: 8) {
+                Text(displayPath)
+                    .foregroundStyle(path.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !path.isEmpty {
+                    Button(action: clearPath) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button("Browse…") {
+                    selectFile()
+                }
+            }
+        }
+    }
+
+    private var displayPath: String {
+        if path.isEmpty {
+            return "None"
+        }
+        // Show just the filename for cleaner display
+        return (path as NSString).lastPathComponent
+    }
+
+    private func clearPath() {
+        path = ""
+    }
+
+    private func selectFile() {
+        let panel = NSOpenPanel()
+        panel.title = prompt
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = allowedTypes.compactMap { ext in
+            UTType(filenameExtension: ext)
+        }
+
+        // Start in a sensible location
+        if !path.isEmpty {
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            panel.directoryURL = URL(fileURLWithPath: expandedPath).deletingLastPathComponent()
+        } else {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        }
+
+        if panel.runModal() == .OK, let url = panel.url {
+            path = url.path
+        }
     }
 }

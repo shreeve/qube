@@ -53,3 +53,4 @@ class VMManager: ObservableObject {
         runningVMs.contains(vm.id)
     }
 }
+

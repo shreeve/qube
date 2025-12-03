@@ -1,0 +1,17 @@
+Display Modes — Cocoa, SPICE, VNC, or headless
+
+==
+
+Delete VM — Right-click context menu or swipe-to-delete
+Disk image creation — Built-in qemu-img create dialog
+Error alerts — Show user-friendly errors when QEMU fails to start
+VM status badge — Real-time running indicator in the sidebar
+
+==
+
+UEFI boot support (for aarch64)
+Network configuration options
+Console output capture
+Snapshot management
+
+==

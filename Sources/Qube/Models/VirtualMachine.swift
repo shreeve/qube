@@ -41,3 +41,4 @@ struct VirtualMachine: Identifiable, Codable, Hashable {
         )
     }
 }
+

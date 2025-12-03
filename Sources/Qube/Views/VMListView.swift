@@ -40,3 +40,4 @@ struct VMRowView: View {
         .padding(.vertical, 4)
     }
 }
+
