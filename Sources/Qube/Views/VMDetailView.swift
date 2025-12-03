@@ -39,8 +39,12 @@ struct VMDetailView: View {
 
                 // Configuration sections
                 VStack(spacing: 24) {
-                    systemSection
-                    hardwareSection
+                    // System and Hardware side by side
+                    HStack(alignment: .top, spacing: 24) {
+                        systemSection
+                        hardwareSection
+                    }
+                    
                     storageSection
                     snapshotsSection
                     configInfoSection
