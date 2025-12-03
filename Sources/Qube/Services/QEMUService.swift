@@ -42,6 +42,7 @@ class QEMUService {
 
         case .i386:
             // 32-bit x86 - for legacy OSes like Windows XP
+            // Use classic pc machine (PIIX4) - most compatible with XP
             args.append(contentsOf: ["-machine", "pc"])
             args.append(contentsOf: ["-cpu", "pentium3"])
             args.append(contentsOf: ["-smp", "\(vm.cpuCores)"])
@@ -53,7 +54,14 @@ class QEMUService {
         // Disk (if provided)
         if !vm.diskImagePath.isEmpty {
             let expandedDiskPath = NSString(string: vm.diskImagePath).expandingTildeInPath
-            args.append(contentsOf: ["-drive", "file=\(expandedDiskPath),format=qcow2,if=virtio"])
+            
+            if vm.architecture == .i386 {
+                // i386: Use IDE for legacy OS compatibility (XP, Win2000, etc.)
+                args.append(contentsOf: ["-drive", "file=\(expandedDiskPath),format=qcow2,if=ide"])
+            } else {
+                // ARM64 & x86_64: Use VirtIO for best performance
+                args.append(contentsOf: ["-drive", "file=\(expandedDiskPath),format=qcow2,if=virtio"])
+            }
         }
 
         // ISO/CD-ROM (if provided)
@@ -62,8 +70,14 @@ class QEMUService {
             args.append(contentsOf: ["-cdrom", expandedISOPath])
         }
 
-        // Network (virtio for best performance)
-        args.append(contentsOf: ["-device", "virtio-net-pci,netdev=net0"])
+        // Network
+        if vm.architecture == .i386 {
+            // i386: RTL8139 for legacy OS compatibility
+            args.append(contentsOf: ["-device", "rtl8139,netdev=net0"])
+        } else {
+            // ARM64 & x86_64: VirtIO for best performance
+            args.append(contentsOf: ["-device", "virtio-net-pci,netdev=net0"])
+        }
         args.append(contentsOf: ["-netdev", "user,id=net0"])
 
         // USB controller and devices
