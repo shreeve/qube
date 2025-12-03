@@ -1,4 +1,0 @@
-Error alerts — Show user-friendly errors when QEMU fails to start
-
-Network configuration options
-Snapshot management
