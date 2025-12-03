@@ -4,6 +4,7 @@
 *.xcodeproj/
 xcuserdata/
 DerivedData/
+dist/
 
 # macOS
 .DS_Store
@@ -13,4 +14,3 @@ DerivedData/
 # IDE
 .idea/
 *.xcworkspace/
-

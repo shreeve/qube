@@ -197,7 +197,8 @@ struct FilePickerRow: View {
                     .foregroundStyle(path.isEmpty ? .secondary : .primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer()
 
                 if !path.isEmpty {
                     Button(action: clearPath) {
