@@ -32,6 +32,7 @@ struct VMFormView: View {
             Form {
                 Section("General") {
                     TextField("Name", text: $name)
+                        .textFieldStyle(.roundedBorder)
                     Picker("Architecture", selection: $architecture) {
                         ForEach(VirtualMachine.Architecture.allCases, id: \.self) { arch in
                             Text(arch.rawValue).tag(arch)
