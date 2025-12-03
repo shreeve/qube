@@ -250,7 +250,7 @@ class QEMUService {
                 formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
                 date = formatter.date(from: dateStr)
 
-                snapshots.append(Snapshot(id: components[0], name: name, date: date, vmSize: vmSize))
+                snapshots.append(Snapshot(id: name, name: name, date: date, vmSize: vmSize))
             }
         }
 

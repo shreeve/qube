@@ -29,6 +29,7 @@ struct VMDetailView: View {
     @State private var snapshotToClone: Snapshot?
     @State private var snapshotToRename: Snapshot?
     @State private var renameSnapshotName = ""
+    @State private var isCreatingSnapshot = false
 
     var body: some View {
         ScrollView {
@@ -331,9 +332,15 @@ struct VMDetailView: View {
                     Spacer()
 
                     if !diskImagePath.isEmpty {
-                        Button("Create…") {
-                            newSnapshotName = "Snapshot \(snapshots.count + 1)"
-                            showingCreateSnapshot = true
+                        if isCreatingSnapshot {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                                .frame(width: 60)
+                        } else {
+                            Button("Create…") {
+                                newSnapshotName = "Snapshot \(snapshots.count + 1)"
+                                showingCreateSnapshot = true
+                            }
                         }
                     }
                 }
@@ -542,6 +549,8 @@ struct VMDetailView: View {
     private func createSnapshot() {
         guard !diskImagePath.isEmpty, !newSnapshotName.isEmpty else { return }
 
+        isCreatingSnapshot = true
+
         // Generate timestamp-based internal name for QEMU
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd_HHmmss"
@@ -553,40 +562,46 @@ struct VMDetailView: View {
         let socketExists = FileManager.default.fileExists(atPath: socketPath)
         let isRunning = vmManager.isRunning(vm) || socketExists
 
-        if isRunning {
-            // Live snapshot - captures RAM + disk state!
-            // Pause briefly for consistency
-            _ = QEMUService.shared.pause(vm)
+        // Run snapshot creation in background
+        DispatchQueue.global(qos: .userInitiated).async {
+            var success = false
 
-            // Save the snapshot (includes memory state)
-            let success = QEMUService.shared.saveSnapshot(vm, name: internalName)
+            if isRunning {
+                // Live snapshot - captures RAM + disk state!
+                // Pause briefly for consistency
+                _ = QEMUService.shared.pause(vm)
 
-            // Resume immediately
-            _ = QEMUService.shared.resume(vm)
+                // Save the snapshot (includes memory state)
+                success = QEMUService.shared.saveSnapshot(vm, name: internalName)
 
-            if success {
-                // Store display name mapping
-                saveSnapshotDisplayName(internalName: internalName, displayName: userDisplayName)
+                // Resume immediately
+                _ = QEMUService.shared.resume(vm)
+            } else {
+                // Offline snapshot - disk state only
+                success = SnapshotService.shared.create(diskPath: diskImagePath, name: internalName)
+            }
 
-                // Give QEMU a moment to write the snapshot, then refresh
+            // Back to main thread for UI updates
+            DispatchQueue.main.async {
+                if success {
+                    // Store display name mapping
+                    saveSnapshotDisplayName(internalName: internalName, displayName: userDisplayName)
+                }
+
+                // Give QEMU a moment to write, then refresh
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     loadSnapshots()
+                    isCreatingSnapshot = false
                 }
-            }
-        } else {
-            // Offline snapshot - disk state only
-            if SnapshotService.shared.create(diskPath: diskImagePath, name: internalName) {
-                // Store display name mapping
-                saveSnapshotDisplayName(internalName: internalName, displayName: userDisplayName)
-                loadSnapshots()
             }
         }
         newSnapshotName = ""
     }
 
     private func displayName(for snapshot: Snapshot) -> String {
-        // Look up display name in VM config, fallback to internal name
-        return vm.snapshotNames[snapshot.name] ?? snapshot.name
+        // Look up display name from current VM in manager (not stale vm property)
+        let currentVM = vmManager.virtualMachines.first(where: { $0.id == vm.id }) ?? vm
+        return currentVM.snapshotNames[snapshot.name] ?? snapshot.name
     }
 
     private func saveSnapshotDisplayName(internalName: String, displayName: String) {
