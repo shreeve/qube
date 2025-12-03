@@ -39,12 +39,21 @@ struct VMDetailView: View {
 
                 // Configuration sections
                 VStack(spacing: 24) {
-                    // System and Hardware side by side
-                    HStack(alignment: .top, spacing: 24) {
-                        systemSection
-                        hardwareSection
+                    // System and Hardware side by side (responsive)
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .top, spacing: 24) {
+                            systemSection
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            hardwareSection
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
+                        VStack(spacing: 24) {
+                            systemSection
+                            hardwareSection
+                        }
                     }
-                    
+
                     storageSection
                     snapshotsSection
                     configInfoSection
@@ -274,35 +283,39 @@ struct VMDetailView: View {
 
     private var snapshotsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header with title and create button
-            HStack {
-                Label("Snapshots", systemImage: "clock.arrow.circlepath")
-                    .font(.headline)
-
-                Spacer()
-
-                if !diskImagePath.isEmpty {
-                    Button("Create…") {
-                        newSnapshotName = "Snapshot \(snapshots.count + 1)"
-                        showingCreateSnapshot = true
-                    }
-                    .disabled(vmManager.isRunning(vm))
-                }
-            }
+            Label("Snapshots", systemImage: "clock.arrow.circlepath")
+                .font(.headline)
+                .foregroundStyle(.primary)
 
             // Content
             VStack(spacing: 0) {
-                if diskImagePath.isEmpty {
-                    Text("Select a disk image first")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding()
-                } else if snapshots.isEmpty {
-                    Text("No snapshots")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding()
-                } else {
+                // Header row with Create button
+                HStack {
+                    if diskImagePath.isEmpty {
+                        Text("Select a disk image first")
+                            .foregroundStyle(.secondary)
+                    } else if snapshots.isEmpty {
+                        Text("No snapshots")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Spacer()
+                    }
+
+                    Spacer()
+
+                    if !diskImagePath.isEmpty {
+                        Button("Create…") {
+                            newSnapshotName = "Snapshot \(snapshots.count + 1)"
+                            showingCreateSnapshot = true
+                        }
+                        .disabled(vmManager.isRunning(vm))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+
+                if !diskImagePath.isEmpty && !snapshots.isEmpty {
+                    Divider()
                     // Table header
                     HStack(spacing: 0) {
                         Text("#")
