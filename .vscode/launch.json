@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:qube}",
+            "name": "Debug Qube",
+            "program": "${workspaceFolder:qube}/.build/debug/Qube",
+            "preLaunchTask": "swift: Build Debug Qube"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:qube}",
+            "name": "Release Qube",
+            "program": "${workspaceFolder:qube}/.build/release/Qube",
+            "preLaunchTask": "swift: Build Release Qube"
+        }
+    ]
+}
