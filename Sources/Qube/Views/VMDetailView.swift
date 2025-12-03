@@ -619,20 +619,33 @@ struct VMDetailView: View {
 
     private func startFromSnapshot(_ snapshot: Snapshot) {
         guard !diskImagePath.isEmpty else { return }
-        // First restore the snapshot
-        if SnapshotService.shared.restore(diskPath: diskImagePath, name: snapshot.name) {
-            loadSnapshots()
-            // Then start the VM
-            do {
-                let process = try QEMUService.shared.start(vm)
-                vmManager.runningVMs.insert(vm.id)
-                process.terminationHandler = { _ in
-                    Task { @MainActor in
-                        vmManager.runningVMs.remove(vm.id)
+
+        // Check if VM is running
+        let socketPath = QEMUService.shared.monitorSocketPath(for: vm)
+        let socketExists = FileManager.default.fileExists(atPath: socketPath)
+        let isRunning = vmManager.isRunning(vm) || socketExists
+
+        if isRunning {
+            // VM is running - use QEMU monitor to load snapshot (restores RAM state too!)
+            if QEMUService.shared.loadSnapshot(vm, name: snapshot.name) {
+                loadSnapshots()
+            }
+        } else {
+            // VM is stopped - restore snapshot then start
+            if SnapshotService.shared.restore(diskPath: diskImagePath, name: snapshot.name) {
+                loadSnapshots()
+                // Then start the VM
+                do {
+                    let process = try QEMUService.shared.start(vm)
+                    vmManager.runningVMs.insert(vm.id)
+                    process.terminationHandler = { _ in
+                        Task { @MainActor in
+                            vmManager.runningVMs.remove(vm.id)
+                        }
                     }
+                } catch {
+                    print("Failed to start VM: \(error)")
                 }
-            } catch {
-                print("Failed to start VM: \(error)")
             }
         }
         snapshotToStart = nil
