@@ -308,7 +308,6 @@ struct VMDetailView: View {
                             newSnapshotName = "Snapshot \(snapshots.count + 1)"
                             showingCreateSnapshot = true
                         }
-                        .disabled(vmManager.isRunning(vm))
                     }
                 }
                 .padding(.horizontal, 12)
@@ -416,12 +415,16 @@ struct VMDetailView: View {
         }
         .onAppear { loadSnapshots() }
         .onChange(of: diskImagePath) { _, _ in loadSnapshots() }
-        .alert("Create Snapshot", isPresented: $showingCreateSnapshot) {
+        .alert(vmManager.isRunning(vm) ? "Create Live Snapshot" : "Create Snapshot", isPresented: $showingCreateSnapshot) {
             TextField("Name", text: $newSnapshotName)
             Button("Cancel", role: .cancel) { }
             Button("Create") { createSnapshot() }
         } message: {
-            Text("The VM must be stopped to create a snapshot.")
+            if vmManager.isRunning(vm) {
+                Text("This will briefly pause the VM to capture memory + disk state. You can resume exactly where you left off!")
+            } else {
+                Text("This will save the current disk state.")
+            }
         }
         .alert("Start from Snapshot?", isPresented: .init(
             get: { snapshotToStart != nil },
@@ -475,13 +478,45 @@ struct VMDetailView: View {
             snapshots = []
             return
         }
-        snapshots = SnapshotService.shared.list(diskPath: diskImagePath)
+
+        // Check if VM is running (either tracked by manager OR socket exists)
+        let socketPath = QEMUService.shared.monitorSocketPath(for: vm)
+        let socketExists = FileManager.default.fileExists(atPath: socketPath)
+
+        if vmManager.isRunning(vm) || socketExists {
+            // Use QEMU monitor when VM is running
+            snapshots = QEMUService.shared.listSnapshots(vm)
+        } else {
+            // Use qemu-img when VM is stopped
+            snapshots = SnapshotService.shared.list(diskPath: diskImagePath)
+        }
     }
 
     private func createSnapshot() {
         guard !diskImagePath.isEmpty, !newSnapshotName.isEmpty else { return }
-        if SnapshotService.shared.create(diskPath: diskImagePath, name: newSnapshotName) {
-            loadSnapshots()
+
+        if vmManager.isRunning(vm) {
+            // Live snapshot - captures RAM + disk state!
+            // Pause briefly for consistency
+            _ = QEMUService.shared.pause(vm)
+
+            // Save the snapshot (includes memory state)
+            let success = QEMUService.shared.saveSnapshot(vm, name: newSnapshotName)
+
+            // Resume immediately
+            _ = QEMUService.shared.resume(vm)
+
+            if success {
+                // Give QEMU a moment to write the snapshot, then refresh
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    loadSnapshots()
+                }
+            }
+        } else {
+            // Offline snapshot - disk state only
+            if SnapshotService.shared.create(diskPath: diskImagePath, name: newSnapshotName) {
+                loadSnapshots()
+            }
         }
         newSnapshotName = ""
     }
@@ -520,8 +555,20 @@ struct VMDetailView: View {
 
     private func deleteSnapshot(_ snapshot: Snapshot) {
         guard !diskImagePath.isEmpty else { return }
-        if SnapshotService.shared.delete(diskPath: diskImagePath, name: snapshot.name) {
-            loadSnapshots()
+
+        var success = false
+        if vmManager.isRunning(vm) {
+            // Live delete via QEMU monitor
+            success = QEMUService.shared.deleteSnapshot(vm, name: snapshot.name)
+        } else {
+            // Offline delete via qemu-img
+            success = SnapshotService.shared.delete(diskPath: diskImagePath, name: snapshot.name)
+        }
+
+        if success {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                loadSnapshots()
+            }
         }
         snapshotToDelete = nil
     }

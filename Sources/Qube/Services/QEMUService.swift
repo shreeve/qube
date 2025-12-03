@@ -77,9 +77,10 @@ class QEMUService {
         args.append(contentsOf: ["-device", "usb-tablet"])
         args.append(contentsOf: ["-device", "usb-kbd"])
 
-        // Audio (if on desktop)
-        args.append(contentsOf: ["-audiodev", "coreaudio,id=audio0"])
-        args.append(contentsOf: ["-device", "virtio-sound-pci,audiodev=audio0"])
+        // Audio disabled for now - virtio-sound blocks live snapshots
+        // TODO: Add option to enable audio (but disable live snapshots)
+        // args.append(contentsOf: ["-audiodev", "coreaudio,id=audio0"])
+        // args.append(contentsOf: ["-device", "virtio-sound-pci,audiodev=audio0"])
 
         // Boot order: CD first (for installation), then disk
         args.append(contentsOf: ["-boot", "order=dc"])
@@ -137,7 +138,14 @@ class QEMUService {
     /// Send a command to the QEMU monitor
     @discardableResult
     func sendMonitorCommand(vm: VirtualMachine, command: String) -> String? {
-        guard let socketPath = monitorSockets[vm.id] else { return nil }
+        // Compute socket path directly (works even after Qube restart)
+        let socketPath = monitorSocketPath(for: vm)
+
+        // Check if socket exists
+        guard FileManager.default.fileExists(atPath: socketPath) else {
+            print("Monitor socket not found: \(socketPath)")
+            return nil
+        }
 
         // Use socat or nc to send command to socket
         let process = Process()
@@ -153,8 +161,11 @@ class QEMUService {
             process.waitUntilExit()
 
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            return String(data: data, encoding: .utf8)
+            let result = String(data: data, encoding: .utf8)
+            print("Monitor command '\(command)' result: \(result ?? "nil")")
+            return result
         } catch {
+            print("Monitor command failed: \(error)")
             return nil
         }
     }
@@ -177,6 +188,73 @@ class QEMUService {
     /// Load a snapshot (restores RAM state too)
     func loadSnapshot(_ vm: VirtualMachine, name: String) -> Bool {
         sendMonitorCommand(vm: vm, command: "loadvm \(name)") != nil
+    }
+
+    /// Delete a snapshot
+    func deleteSnapshot(_ vm: VirtualMachine, name: String) -> Bool {
+        sendMonitorCommand(vm: vm, command: "delvm \(name)") != nil
+    }
+
+    /// List snapshots via monitor (works while VM is running)
+    func listSnapshots(_ vm: VirtualMachine) -> [Snapshot] {
+        guard let output = sendMonitorCommand(vm: vm, command: "info snapshots") else {
+            return []
+        }
+        return parseMonitorSnapshots(output)
+    }
+
+    /// Parse "info snapshots" output from QEMU monitor
+    private func parseMonitorSnapshots(_ output: String) -> [Snapshot] {
+        var snapshots: [Snapshot] = []
+
+        // First, strip all ANSI escape sequences
+        var cleaned = output
+        // Remove ESC[K, ESC[D, etc
+        let escapePattern = try? NSRegularExpression(pattern: "\\x1B\\[[0-9;]*[A-Za-z]", options: [])
+        if let pattern = escapePattern {
+            cleaned = pattern.stringByReplacingMatches(in: cleaned, options: [], range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+        }
+        // Remove carriage returns
+        cleaned = cleaned.replacingOccurrences(of: "\r", with: "")
+
+        let lines = cleaned.components(separatedBy: "\n")
+
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Skip empty lines, headers, and prompts
+            if trimmed.isEmpty ||
+               trimmed.hasPrefix("List of") ||
+               trimmed.hasPrefix("ID") ||
+               trimmed.hasPrefix("(qemu)") ||
+               trimmed.hasPrefix("QEMU") ||
+               trimmed.contains("no snapshot") ||
+               trimmed.contains("type 'help'") {
+                continue
+            }
+
+            // Parse snapshot line: ID  TAG  VM_SIZE  DATE  TIME  VM_CLOCK  ICOUNT
+            // Example: --      testsnap         1.46 GiB 2025-12-02 23:35:45  0000:01:13.782         --
+            let components = trimmed.components(separatedBy: .whitespaces).filter { !$0.isEmpty }
+
+            // Need at least: ID, TAG, SIZE, UNIT, DATE, TIME
+            if components.count >= 6 {
+                // First component is ID (often "--")
+                let name = components[1]  // TAG is always second
+                let vmSize = "\(components[2]) \(components[3])"  // e.g., "1.46 GiB"
+
+                // Date is components[4] and [5]
+                var date: Date? = nil
+                let dateStr = "\(components[4]) \(components[5])"
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                date = formatter.date(from: dateStr)
+
+                snapshots.append(Snapshot(id: components[0], name: name, date: date, vmSize: vmSize))
+            }
+        }
+
+        return snapshots
     }
 
     /// Get VM status
