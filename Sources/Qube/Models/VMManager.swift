@@ -21,7 +21,11 @@ class VMManager: ObservableObject {
         try? FileManager.default.createDirectory(at: machinesDirectory, withIntermediateDirectories: true)
 
         load()
-        detectRunningVMs()
+
+        // Detect running VMs in background to avoid blocking UI
+        Task {
+            await detectRunningVMsAsync()
+        }
     }
 
     func load() {
@@ -118,46 +122,59 @@ class VMManager: ObservableObject {
     func configDirectoryPath() -> String {
         machinesDirectory.path
     }
-    
-    /// Detect QEMU processes that are running our VMs
-    func detectRunningVMs() {
-        // Get list of running QEMU processes
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-eo", "pid,command"]
-        
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        
-        do {
-            try process.run()
-            process.waitUntilExit()
-            
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            guard let output = String(data: data, encoding: .utf8) else { return }
-            
-            // Parse output and find QEMU processes
-            for line in output.components(separatedBy: "\n") {
-                if line.contains("qemu-system-") {
-                    // Check each VM to see if its disk is in this command
-                    for vm in virtualMachines {
-                        let expandedPath = NSString(string: vm.diskImagePath).expandingTildeInPath
-                        if line.contains(expandedPath) {
-                            runningVMs.insert(vm.id)
-                            print("Detected running VM: \(vm.name)")
+
+    /// Detect QEMU processes that are running our VMs (async to avoid blocking UI)
+    func detectRunningVMsAsync() async {
+        // Run on background thread
+        let vms = virtualMachines
+        let foundVMs = await Task.detached {
+            var found: Set<UUID> = []
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-eo", "pid,command"]
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                guard let output = String(data: data, encoding: .utf8) else { return found }
+
+                for line in output.components(separatedBy: "\n") {
+                    if line.contains("qemu-system-") {
+                        for vm in vms {
+                            if !vm.diskImagePath.isEmpty {
+                                let expandedPath = NSString(string: vm.diskImagePath).expandingTildeInPath
+                                if line.contains(expandedPath) {
+                                    found.insert(vm.id)
+                                }
+                            }
                         }
                     }
                 }
+            } catch {
+                // Ignore errors
             }
-        } catch {
-            print("Failed to detect running VMs: \(error)")
+
+            return found
+        }.value
+
+        // Update on main thread
+        for vmId in foundVMs {
+            runningVMs.insert(vmId)
         }
     }
-    
+
     /// Refresh running VM status
     func refreshRunningStatus() {
         runningVMs.removeAll()
-        detectRunningVMs()
+        Task {
+            await detectRunningVMsAsync()
+        }
     }
 }
