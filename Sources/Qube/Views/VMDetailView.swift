@@ -56,7 +56,6 @@ struct VMDetailView: View {
 
                     storageSection
                     snapshotsSection
-                    configInfoSection
                 }
                 .padding(24)
             }
@@ -160,6 +159,31 @@ struct VMDetailView: View {
             }
 
             Spacer()
+
+            // Config file info (top right, subtle)
+            if let configPath = vm.configPath {
+                VStack(alignment: .trailing, spacing: 4) {
+                    Button(action: {
+                        NSWorkspace.shared.selectFile(configPath.path, inFileViewerRootedAtPath: "")
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(configPath.lastPathComponent)
+                                .font(.caption)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Reveal in Finder")
+
+                    if let modified = vm.lastModified {
+                        Text(modified, format: .dateTime.month(.abbreviated).day().hour().minute())
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+            }
         }
         .padding(24)
     }
@@ -289,7 +313,7 @@ struct VMDetailView: View {
 
             // Content
             VStack(spacing: 0) {
-                // Header row with Create button
+                // Top row with status/create button
                 HStack {
                     if diskImagePath.isEmpty {
                         Text("Select a disk image first")
@@ -298,7 +322,8 @@ struct VMDetailView: View {
                         Text("No snapshots")
                             .foregroundStyle(.secondary)
                     } else {
-                        Spacer()
+                        Text("\(snapshots.count) snapshot\(snapshots.count == 1 ? "" : "s")")
+                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
@@ -320,14 +345,14 @@ struct VMDetailView: View {
                         Text("#")
                             .frame(width: 30, alignment: .center)
                         Text("Name")
-                            .frame(minWidth: 100, alignment: .leading)
+                            .frame(minWidth: 80, alignment: .leading)
                         Spacer()
                         Text("Created")
                             .frame(width: 130, alignment: .leading)
                         Text("Size")
-                            .frame(width: 50, alignment: .trailing)
+                            .frame(width: 60, alignment: .trailing)
                         Text("Actions")
-                            .frame(width: 90, alignment: .center)
+                            .frame(width: 110, alignment: .center)
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -349,7 +374,7 @@ struct VMDetailView: View {
                                     .font(.caption.monospacedDigit())
 
                                 Text(snapshot.name)
-                                    .frame(minWidth: 100, alignment: .leading)
+                                    .frame(minWidth: 80, alignment: .leading)
                                     .lineLimit(1)
 
                                 Spacer()
@@ -366,11 +391,11 @@ struct VMDetailView: View {
                                 }
 
                                 Text(snapshot.vmSize ?? "—")
-                                    .frame(width: 50, alignment: .trailing)
+                                    .frame(width: 60, alignment: .trailing)
                                     .foregroundStyle(.tertiary)
                                     .font(.caption)
 
-                                HStack(spacing: 4) {
+                                HStack(spacing: 12) {
                                     Button {
                                         snapshotToStart = snapshot
                                     } label: {
@@ -378,7 +403,6 @@ struct VMDetailView: View {
                                             .font(.caption)
                                     }
                                     .buttonStyle(.borderless)
-                                    .disabled(vmManager.isRunning(vm))
                                     .help("Start from this snapshot")
 
                                     Button {
@@ -388,7 +412,6 @@ struct VMDetailView: View {
                                             .font(.caption)
                                     }
                                     .buttonStyle(.borderless)
-                                    .disabled(vmManager.isRunning(vm))
                                     .help("Clone this snapshot")
 
                                     Button {
@@ -401,7 +424,7 @@ struct VMDetailView: View {
                                     .foregroundStyle(.red)
                                     .help("Delete this snapshot")
                                 }
-                                .frame(width: 90, alignment: .center)
+                                .frame(width: 110, alignment: .center)
                             }
                             .font(.callout)
                             .padding(.horizontal, 12)
