@@ -16,6 +16,7 @@ struct VMFormView: View {
     @State private var diskImagePath: String
     @State private var isoPath: String
     @State private var displayMode: VirtualMachine.DisplayMode
+    @State private var showingDiskPicker = false
 
     init(vm: VirtualMachine?) {
         self.existingVM = vm
@@ -52,7 +53,7 @@ struct VMFormView: View {
 
                     Picker("Architecture", selection: $architecture) {
                         ForEach(VirtualMachine.Architecture.allCases, id: \.self) { arch in
-                            Text(arch.rawValue).tag(arch)
+                            Text(arch.displayName).tag(arch)
                         }
                     }
                 }
@@ -77,12 +78,28 @@ struct VMFormView: View {
                 }
 
                 Section("Storage") {
-                    FilePickerRow(
-                        label: "Disk Image",
-                        path: $diskImagePath,
-                        allowedTypes: ["qcow2", "raw", "vmdk", "vdi", "img"],
-                        prompt: "Select Disk Image"
-                    )
+                    LabeledContent("Disk Image") {
+                        HStack(spacing: 8) {
+                            Text(diskImagePath.isEmpty ? "None" : (diskImagePath as NSString).lastPathComponent)
+                                .foregroundStyle(diskImagePath.isEmpty ? .secondary : .primary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer()
+
+                            if !diskImagePath.isEmpty {
+                                Button(action: { diskImagePath = "" }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            Button(diskImagePath.isEmpty ? "Select…" : "Change…") {
+                                showingDiskPicker = true
+                            }
+                        }
+                    }
 
                     FilePickerRow(
                         label: "ISO (optional)",
@@ -105,6 +122,11 @@ struct VMFormView: View {
             }
         }
         .frame(minWidth: 450, minHeight: 480)
+        .sheet(isPresented: $showingDiskPicker) {
+            DiskPickerView(vmName: name, currentPath: diskImagePath) { path in
+                diskImagePath = path
+            }
+        }
     }
 
     private var canSave: Bool {

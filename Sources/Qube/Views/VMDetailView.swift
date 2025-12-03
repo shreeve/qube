@@ -18,6 +18,7 @@ struct VMDetailView: View {
 
     @State private var hasChanges = false
     @State private var showingDeleteAlert = false
+    @State private var showingDiskPicker = false
 
     var body: some View {
         ScrollView {
@@ -77,6 +78,12 @@ struct VMDetailView: View {
         } message: {
             Text("This will delete \"\(vm.name)\" and its configuration file. Disk images will not be deleted.")
         }
+        .sheet(isPresented: $showingDiskPicker) {
+            DiskPickerView(vmName: name, currentPath: diskImagePath) { path in
+                diskImagePath = path
+                checkForChanges()
+            }
+        }
     }
 
     // MARK: - Header
@@ -117,7 +124,7 @@ struct VMDetailView: View {
                     Text("•")
                         .foregroundStyle(.tertiary)
 
-                    Text(architecture.rawValue)
+                    Text(architecture.displayName)
                         .foregroundStyle(.secondary)
                 }
                 .font(.subheadline)
@@ -152,7 +159,7 @@ struct VMDetailView: View {
             ConfigRow(label: "Architecture") {
                 Picker("", selection: $architecture) {
                     ForEach(VirtualMachine.Architecture.allCases, id: \.self) { arch in
-                        Text(arch.rawValue).tag(arch)
+                        Text(arch.displayName).tag(arch)
                     }
                 }
                 .labelsHidden()
@@ -219,8 +226,8 @@ struct VMDetailView: View {
                         .buttonStyle(.plain)
                     }
 
-                    Button("Browse…") {
-                        selectFile(for: .disk)
+                    Button(diskImagePath.isEmpty ? "Select…" : "Change…") {
+                        showingDiskPicker = true
                     }
                 }
             }

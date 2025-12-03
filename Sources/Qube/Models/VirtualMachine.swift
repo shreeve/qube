@@ -38,13 +38,23 @@ struct VirtualMachine: Identifiable, Codable, Hashable {
     }
 
     enum Architecture: String, Codable, CaseIterable {
-        case x86_64 = "x86_64"
         case aarch64 = "aarch64"
-
+        case x86_64 = "x86_64"
+        case i386 = "i386"
+        
+        var displayName: String {
+            switch self {
+            case .aarch64: return "ARM 64-bit"
+            case .x86_64: return "Intel/AMD 64-bit"
+            case .i386: return "Intel/AMD 32-bit"
+            }
+        }
+        
         var qemuBinary: String {
             switch self {
-            case .x86_64: return "qemu-system-x86_64"
             case .aarch64: return "qemu-system-aarch64"
+            case .x86_64: return "qemu-system-x86_64"
+            case .i386: return "qemu-system-i386"
             }
         }
     }
